@@ -2,15 +2,20 @@ import math
 import numpy as np
 import torch
 import yaml
-import sys
 from models.GPT_model import GPT_Config, GPT_Model
+from pathlib import Path
+from tqdm import tqdm
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+config_path = PROJECT_ROOT / "configs" / "seer_304m.yaml"
 
 train_shard = (
     "/Volumes/Crucial X9/Seer/processed/fineweb-edu-10bt/seer_train_000001.bin"
 )
 
 # Load configuration yaml
-with open("configs/seer_304m.yaml") as f:
+with open(config_path) as f:
     cfg = yaml.safe_load(f)["seer_304m"]
     mcfg, tcfg, scfg = cfg["model"], cfg["train"], cfg["system"]
 
@@ -81,7 +86,8 @@ if __name__ == "__main__":
     )
 
     model.train()
-    for step in range(tcfg["max_steps"]):
+    pbar = tqdm(range(tcfg["max_steps"]), desc="training")
+    for step in pbar:
         lr = get_lr(
             step,
             tcfg["warmup_steps"],
@@ -94,12 +100,12 @@ if __name__ == "__main__":
 
         optimizer.zero_grad()
         loss_accum = 0.0
-        for micro in range(grad_accum):
+        for micro in tqdm(range(grad_accum), desc=f"step {step}", leave=False):
             x, y = get_batch(
                 train_shard, tcfg["micro_batch_size"], tcfg["block_size"], device
             )
-            with torch.autocast(device_type=device, dtype=torch.bfloat16):
-                logits, loss = model(x, y)
+
+            logits, loss = model(x, y)
             loss = loss / grad_accum
             loss_accum += loss.item()
             loss.backward()
@@ -107,7 +113,6 @@ if __name__ == "__main__":
         norm = torch.nn.utils.clip_grad_norm_(model.parameters(), tcfg["grad_clip"])
         optimizer.step()
 
-        if step % tcfg["log_interval"] == 0:
-            print(
-                f"step {step:5d} | loss {loss_accum:.4f} | lr {lr:.2e} | norm {norm:.2f}"
-            )
+    pbar.set_postfix(
+        loss=f"{loss_accum:.3f}", lr=f"{lr:.1e}", norm=f"{float(norm):.2f}"
+    )

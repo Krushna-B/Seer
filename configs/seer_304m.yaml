@@ -12,7 +12,7 @@ seer_304m:
     learning_rate: 6.0e-4
     min_lr: 6.0e-5
     warmup_steps: 700
-    max_steps: 19073
+    max_steps: 20
     weight_decay: 0.1
     beta1: 0.9
     beta2: 0.95
@@ -24,7 +24,7 @@ seer_304m:
     eval_iters: 200
     log_interval: 10
   system:
-    device: mps #On mac book
+    device: cpu #On mac book
     dtype: bfloat16
     compile: false
     seed: 1337

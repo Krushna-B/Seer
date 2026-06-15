@@ -2,7 +2,7 @@ import tiktoken
 import numpy as np
 import os
 from tqdm import tqdm
-from download import download_data
+from data.download import download_data
 
 
 # GPT2 Encoder with vocab size of 50.257

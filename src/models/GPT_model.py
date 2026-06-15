@@ -50,11 +50,11 @@ class GPT_Model(nn.Module):
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
-            nn.init.normal(module.weight, mean=0, std=0.02)
+            nn.init.normal_(module.weight, mean=0, std=0.02)
             if module.bias is not None:
                 nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
-            nn.init.normal(module.weight, mean=0.0, std=0.02)
+            nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def configure_optimizers(self, weight_decay, learning_rate, betas, device):
         params = {name: p for name, p in self.named_parameters() if p.requires_grad}
