@@ -1,5 +1,38 @@
+import math
 import numpy as np
 import torch
+import yaml
+import sys
+from models.GPT_model import GPT_Config, GPT_Model
+
+train_shard = (
+    "/Volumes/Crucial X9/Seer/processed/fineweb-edu-10bt/seer_train_000001.bin"
+)
+
+# Load configuration yaml
+with open("configs/seer_304m.yaml") as f:
+    cfg = yaml.safe_load(f)["seer_304m"]
+    mcfg, tcfg, scfg = cfg["model"], cfg["train"], cfg["system"]
+
+# Set seed
+torch.manual_seed(scfg["seed"])
+
+# Device & precision
+device = "cuda" if torch.cuda.is_available() else scfg["device"]
+torch.set_float32_matmul_precision("high")
+
+# Build model and move model to device
+model = GPT_Model(GPT_Config(**mcfg))
+model.to(device)
+
+
+# Optimzer
+optimizer = model.configure_optimizers(
+    weight_decay=tcfg["weight_decay"],
+    learning_rate=tcfg["learning_rate"],
+    betas=(tcfg["beta1"], tcfg["beta2"]),
+    device=device,
+)
 
 
 def get_batch(shard_path, batch_size, block_size, device):
@@ -24,3 +57,57 @@ def get_batch(shard_path, batch_size, block_size, device):
     x = x.to(device)
     y = y.to(device)
     return x, y
+
+
+def get_lr(step, warmup_steps, max_steps, learning_rate, min_lr):
+    # linear warmup for the first warmup_steps
+    if step < warmup_steps:
+        return learning_rate * (step + 1) / warmup_steps
+    # after max_steps, stay at min_lr
+    if step > max_steps:
+        return min_lr
+    # in between: cosine decay from learning_rate down to min_lr
+    decay_ratio = (step - warmup_steps) / (max_steps - warmup_steps)
+    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))  # goes 1 -> 0
+    return min_lr + coeff * (learning_rate - min_lr)
+
+
+if __name__ == "__main__":
+    grad_accum = tcfg["total_batch_size"] // (
+        tcfg["micro_batch_size"] * tcfg["block_size"]
+    )
+    assert (
+        tcfg["total_batch_size"] % (tcfg["micro_batch_size"] * tcfg["block_size"]) == 0
+    )
+
+    model.train()
+    for step in range(tcfg["max_steps"]):
+        lr = get_lr(
+            step,
+            tcfg["warmup_steps"],
+            tcfg["max_steps"],
+            tcfg["learning_rate"],
+            tcfg["min_lr"],
+        )
+        for optim in optimizer.param_groups:
+            optim["lr"] = lr
+
+        optimizer.zero_grad()
+        loss_accum = 0.0
+        for micro in range(grad_accum):
+            x, y = get_batch(
+                train_shard, tcfg["micro_batch_size"], tcfg["block_size"], device
+            )
+            with torch.autocast(device_type=device, dtype=torch.bfloat16):
+                logits, loss = model(x, y)
+            loss = loss / grad_accum
+            loss_accum += loss.item()
+            loss.backward()
+
+        norm = torch.nn.utils.clip_grad_norm_(model.parameters(), tcfg["grad_clip"])
+        optimizer.step()
+
+        if step % tcfg["log_interval"] == 0:
+            print(
+                f"step {step:5d} | loss {loss_accum:.4f} | lr {lr:.2e} | norm {norm:.2f}"
+            )

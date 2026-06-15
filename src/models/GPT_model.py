@@ -56,6 +56,21 @@ class GPT_Model(nn.Module):
         elif isinstance(module, nn.Embedding):
             nn.init.normal(module.weight, mean=0.0, std=0.02)
 
+    def configure_optimizers(self, weight_decay, learning_rate, betas, device):
+        params = {name: p for name, p in self.named_parameters() if p.requires_grad}
+
+        # split vectors and scalars from high dim objects
+        decay_params = [p for p in params.values() if p.dim() >= 2]
+        nondecay_params = [p for p in params.values() if p.dim() < 2]
+        optim_groups = [
+            {"params": decay_params, "weight_decay": weight_decay},
+            {"params": nondecay_params, "weight_decay": 0.0},
+        ]
+        fused = device == "cuda"
+        return torch.optim.AdamW(
+            optim_groups, lr=learning_rate, betas=betas, fused=fused
+        )
+
     def forward(self, tokens, targets=None):
         B, T = tokens.size()
         assert T <= self.config.block_size, (

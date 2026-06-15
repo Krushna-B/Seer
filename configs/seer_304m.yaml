@@ -1,0 +1,30 @@
+seer_304m:
+  model:
+    block_size: 1024 #Context windo
+    vocab_size: 50257 #Vocab size from our tokenizer
+    n_layer: 20 #Number of total blocks of attention and MLP
+    n_head: 16 #Number of heads in multihead attention
+    n_embd: 1024 #Embedding dimensions for our tokens
+    dropout: 0.0 #Probability element is 0 out
+    bias: True #Watn layers to include bias term
+
+  train:
+    learning_rate: 6.0e-4
+    min_lr: 6.0e-5
+    warmup_steps: 700
+    max_steps: 19073
+    weight_decay: 0.1
+    beta1: 0.9
+    beta2: 0.95
+    grad_clip: 1.0
+    total_batch_size: 524288
+    micro_batch_size: 16
+    block_size: 1024
+    eval_interval: 250
+    eval_iters: 200
+    log_interval: 10
+  system:
+    device: mps #On mac book
+    dtype: bfloat16
+    compile: false
+    seed: 1337
