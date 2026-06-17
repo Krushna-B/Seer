@@ -31,3 +31,5 @@ seer_304m:
     out_dir: "checkpoints"
     resume: false
     data_dir: "/Volumes/Crucial X9/Seer/processed/fineweb-edu-10bt"
+    price_per_hour: 1.50
+    gpu_peak_flops: 312.0e12

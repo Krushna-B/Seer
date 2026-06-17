@@ -7,6 +7,9 @@ from data.prepare import Shard_Loader
 from pathlib import Path
 from tqdm import tqdm
 import os
+import time
+from metrics.model_card import build_card, write_card
+from metrics.tracker import MetricTracker
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 config_path = PROJECT_ROOT / "configs" / "seer_304m.yaml"
@@ -114,6 +117,23 @@ if __name__ == "__main__":
         best_val_loss = ckpt["best_val_loss"]
         print(f"resumed from {ckpt_path} at step {start_step}")
 
+    # Build metrics card
+    n_params = raw_model.num_params(non_embedding=False)
+    card_path = out_dir / "run_card.json"
+    card = build_card(cfg, n_params, device, scfg["seed"], scfg["data_dir"], out_dir)
+    write_card(card_path, card)
+
+    # Create metrics tracker
+    tracker = MetricTracker(
+        out_dir / "train_log.jsonl",
+        mcfg,
+        n_params,
+        tokens_per_step=tcfg["total_batch_size"],
+        price_per_hour=scfg["price_per_hour"],
+        peak_flops=scfg["gpu_peak_flops"],
+        use_wandb=scfg.get("wandb", False),
+    )
+
     grad_accum = tcfg["total_batch_size"] // (
         tcfg["micro_batch_size"] * tcfg["block_size"]
     )
@@ -121,61 +141,99 @@ if __name__ == "__main__":
         tcfg["total_batch_size"] % (tcfg["micro_batch_size"] * tcfg["block_size"]) == 0
     )
 
-    model.train()
-    pbar = tqdm(range(start_step, tcfg["max_steps"]), desc="training")
-    for step in pbar:
-        lr = get_lr(
-            step,
-            tcfg["warmup_steps"],
-            tcfg["max_steps"],
-            tcfg["learning_rate"],
-            tcfg["min_lr"],
-        )
-        for optim in optimizer.param_groups:
-            optim["lr"] = lr
+    failure = None
+    try:
+        model.train()
+        pbar = tqdm(range(start_step, tcfg["max_steps"]), desc="training")
+        for step in pbar:
+            val_loss = None  # only eval steps set this
+            lr = get_lr(
+                step,
+                tcfg["warmup_steps"],
+                tcfg["max_steps"],
+                tcfg["learning_rate"],
+                tcfg["min_lr"],
+            )
+            for optim in optimizer.param_groups:
+                optim["lr"] = lr
 
-        # periodic val eval + checkpoints
-        if step % tcfg["eval_interval"] == 0:
-            val_loss = evaluate(
-                model,
-                val_loader,
-                ctx,
-                tcfg["eval_iters"],
-                tcfg["micro_batch_size"],
-                tcfg["block_size"],
-                device,
-            )
-            tqdm.write(
-                f"step {step}: val_loss {val_loss:.4f} (best {best_val_loss:.4f})"
-            )
-            save_checkpoint(ckpt_path, raw_model, optimizer, step, best_val_loss, cfg)
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
+            # periodic val eval + checkpoints
+            if step % tcfg["eval_interval"] == 0:
+                val_loss = evaluate(
+                    model,
+                    val_loader,
+                    ctx,
+                    tcfg["eval_iters"],
+                    tcfg["micro_batch_size"],
+                    tcfg["block_size"],
+                    device,
+                )
+                tqdm.write(
+                    f"step {step}: val_loss {val_loss:.4f} (best {best_val_loss:.4f})"
+                )
                 save_checkpoint(
-                    best_path, raw_model, optimizer, step, best_val_loss, cfg
+                    ckpt_path, raw_model, optimizer, step, best_val_loss, cfg
+                )
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    save_checkpoint(
+                        best_path, raw_model, optimizer, step, best_val_loss, cfg
+                    )
+            t0 = time.time()
+            optimizer.zero_grad()
+            loss_accum = 0.0
+            for micro in tqdm(range(grad_accum), desc=f"step {step}", leave=False):
+                x, y = train_loader.get_batch(
+                    tcfg["micro_batch_size"], tcfg["block_size"], device
                 )
 
-        optimizer.zero_grad()
-        loss_accum = 0.0
-        for micro in tqdm(range(grad_accum), desc=f"step {step}", leave=False):
-            x, y = train_loader.get_batch(
-                tcfg["micro_batch_size"], tcfg["block_size"], device
-            )
+                with ctx:
+                    logits, loss = model(x, y)
+                    loss = loss / grad_accum
+                loss_accum += loss.item()
+                loss.backward()
 
-            with ctx:
-                logits, loss = model(x, y)
-                loss = loss / grad_accum
-            loss_accum += loss.item()
-            loss.backward()
+            norm = torch.nn.utils.clip_grad_norm_(model.parameters(), tcfg["grad_clip"])
+            optimizer.step()
 
-        norm = torch.nn.utils.clip_grad_norm_(model.parameters(), tcfg["grad_clip"])
-        optimizer.step()
+            if device_type == "cuda":
+                torch.cuda.synchronize()  # wait for the GPU to finish
+            dt = time.time() - t0
+            if step % tcfg["log_interval"] == 0:
+                rec = tracker.log_step(
+                    step, loss_accum, lr, float(norm), dt, val_loss=val_loss
+                )
+                pbar.set_postfix(
+                    loss=f"{rec['loss']:.3f}",
+                    mfu=f"{rec['mfu']:.1%}",
+                    tok_s=f"{rec['tok_per_sec']:,.0f}",
+                    cost=f"${rec['cost_usd']:.2f}",
+                )
 
-        pbar.set_postfix(
-            loss=f"{loss_accum:.3f}", lr=f"{lr:.1e}", norm=f"{float(norm):.2f}"
+        # final save — outside the loop
+        save_checkpoint(
+            ckpt_path, raw_model, optimizer, tcfg["max_steps"] - 1, best_val_loss, cfg
         )
-
-    # final save — outside the loop
-    save_checkpoint(
-        ckpt_path, raw_model, optimizer, tcfg["max_steps"] - 1, best_val_loss, cfg
-    )
+    except Exception as e:
+        failure = repr(e)
+        raise
+    finally:
+        card.update(
+            {
+                "status": "failed" if failure else "completed",
+                "failure_reason": failure,
+                "end_time": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "duration_hr": (time.time() - tracker.t_start) / 3600,
+                "total_tokens": tracker.total_tokens,
+                "best_val_loss": best_val_loss,
+                "cost_usd": (time.time() - tracker.t_start)
+                / 3600
+                * scfg["price_per_hour"],
+                "ckpt_best": str(best_path),
+                "model_size_bytes": best_path.stat().st_size
+                if best_path.exists()
+                else None,
+            }
+        )
+        write_card(card_path, card)
+        tracker.close()
