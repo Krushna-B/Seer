@@ -18,6 +18,9 @@ config_path = PROJECT_ROOT / "configs" / "seer_304m.yaml"
 with open(config_path) as f:
     cfg = yaml.safe_load(f)["seer_304m"]
     mcfg, tcfg, scfg = cfg["model"], cfg["train"], cfg["system"]
+    scfg["data_dir"] = os.getenv("SEER_DATA_DIR", scfg["data_dir"])
+    scfg["out_dir"] = os.getenv("SEER_OUT_DIR", scfg["out_dir"])
+    scfg["resume"] = os.getenv("SEER_RESUME", str(scfg["resume"])).lower() == "true"
 
 # Set seed
 torch.manual_seed(scfg["seed"])

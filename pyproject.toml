@@ -20,3 +20,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/models", "src/training", "src/data", "src/metrics"]
+
+[dependency-groups]
+dev = [
+    "modal>=1.5.0",
+]

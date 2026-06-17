@@ -2,9 +2,9 @@ seer_304m:
   model:
     block_size: 1024 #Context windo
     vocab_size: 50257 #Vocab size from our tokenizer
-    n_layer: 20 #Number of total blocks of attention and MLP
-    n_head: 16 #Number of heads in multihead attention
-    n_embd: 1024 #Embedding dimensions for our tokens
+    n_layer: 12 #Number of total blocks of attention and MLP
+    n_head: 12 #Number of heads in multihead attention
+    n_embd: 768 #Embedding dimensions for our tokens
     dropout: 0.0 #Probability element is 0 out
     bias: True #Watn layers to include bias term
 
@@ -12,13 +12,13 @@ seer_304m:
     learning_rate: 6.0e-4
     min_lr: 6.0e-5
     warmup_steps: 700
-    max_steps: 20
+    max_steps: 19000
     weight_decay: 0.1
     beta1: 0.9
     beta2: 0.95
     grad_clip: 1.0
     total_batch_size: 524288
-    micro_batch_size: 16
+    micro_batch_size: 32
     block_size: 1024
     eval_interval: 250
     eval_iters: 200
@@ -26,10 +26,10 @@ seer_304m:
   system:
     device: cpu #On mac book
     dtype: bfloat16
-    compile: false
+    compile: true
     seed: 1337
     out_dir: "checkpoints"
     resume: false
-    data_dir: "/Volumes/Crucial X9/Seer/processed/fineweb-edu-10bt"
-    price_per_hour: 1.50
-    gpu_peak_flops: 312.0e12
+    data_dir: "..."
+    price_per_hour: 2.10
+    gpu_peak_flops: 312.0e+12
