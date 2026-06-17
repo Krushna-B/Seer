@@ -3,7 +3,8 @@ import numpy as np
 import os
 from tqdm import tqdm
 from data.download import download_data
-
+import glob
+import torch
 
 # GPT2 Encoder with vocab size of 50.257
 ENCODING = tiktoken.get_encoding("gpt2")
@@ -13,6 +14,45 @@ OUPUT_DIR = "/Volumes/Crucial X9/Seer/processed/fineweb-edu-10bt"
 SHARD_SIZE = int(1e8)
 # sample-10BT is ~10B tokens; only used to drive the overall progress bar / ETA
 TOTAL_TOKENS_EST = int(1e10)
+
+
+class Shard_Loader:
+    def __init__(self, dir, split) -> None:
+        shards = sorted(glob.glob(os.path.join(dir, "*.bin")))
+        assert shards, f"no .bin shards found in {dir}"
+        self.shards = shards[1:] if split == "train" else shards[:1]
+        self._cache = {}
+
+    def _data(self, path):
+        if path not in self._cache:
+            self._cache[path] = np.memmap(path, dtype=np.uint16, mode="r")
+        return self._cache[path]
+
+    def get_batch(self, batch_size, block_size, device):
+        """pick a random shard, then random windows inside it"""
+        path = self.shards[torch.randint(len(self.shards), (1,)).item()]
+        data = self._data[path]
+
+        # Pick batch size
+        ix = torch.randint(len(data) - block_size, (batch_size,))
+        # build inputs and targets
+        x = torch.stack(
+            [torch.from_numpy(data[i : i + block_size].astype(np.int64)) for i in ix]
+        )
+        y = torch.stack(
+            [
+                torch.from_numpy(data[i + 1 : i + block_size + 1].astype(np.int64))
+                for i in ix
+            ]
+        )
+        # move to devide
+        if device == "cuda":
+            x = x.pin_memory().to(device, non_blocking=True)
+            y = y.pin_memory().to(device, non_blocking=True)
+        else:
+            x = x.to(device)
+            y = y.to(device)
+        return x, y
 
 
 def tokenize(doc: dict):

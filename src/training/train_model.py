@@ -2,6 +2,7 @@ import math
 import numpy as np
 import torch
 import yaml
+from contextlib import nullcontext
 from models.GPT_model import GPT_Config, GPT_Model
 from pathlib import Path
 from tqdm import tqdm
@@ -26,9 +27,25 @@ torch.manual_seed(scfg["seed"])
 device = "cuda" if torch.cuda.is_available() else scfg["device"]
 torch.set_float32_matmul_precision("high")
 
+# Mixed-precision autocast: bf16 on GPU, plain fp32 on CPU/Mac.
+device_type = "cuda" if "cuda" in device else "cpu"
+ptdtype = {
+    "float32": torch.float32,
+    "bfloat16": torch.bfloat16,
+    "float16": torch.float16,
+}[scfg["dtype"]]
+ctx = (
+    torch.autocast(device_type=device_type, dtype=ptdtype)
+    if device_type == "cuda"
+    else nullcontext()
+)
+
 # Build model and move model to device
 model = GPT_Model(GPT_Config(**mcfg))
 model.to(device)
+raw_model = model  # uncompiled handle, for clean state_dict saves
+if scfg["compile"]:
+    model = torch.compile(model)
 
 
 # Optimzer
@@ -105,8 +122,9 @@ if __name__ == "__main__":
                 train_shard, tcfg["micro_batch_size"], tcfg["block_size"], device
             )
 
-            logits, loss = model(x, y)
-            loss = loss / grad_accum
+            with ctx:
+                logits, loss = model(x, y)
+                loss = loss / grad_accum
             loss_accum += loss.item()
             loss.backward()
 
