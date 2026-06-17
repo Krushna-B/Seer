@@ -1,19 +1,15 @@
 import math
-import numpy as np
 import torch
 import yaml
 from contextlib import nullcontext
 from models.GPT_model import GPT_Config, GPT_Model
+from data.prepare import Shard_Loader
 from pathlib import Path
 from tqdm import tqdm
 import os
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 config_path = PROJECT_ROOT / "configs" / "seer_304m.yaml"
-
-train_shard = (
-    "/Volumes/Crucial X9/Seer/processed/fineweb-edu-10bt/seer_train_000001.bin"
-)
 
 # Load configuration yaml
 with open(config_path) as f:
@@ -57,30 +53,6 @@ optimizer = model.configure_optimizers(
 )
 
 
-def get_batch(shard_path, batch_size, block_size, device):
-    """Get a sample batch of sequeces from corpus and move to device"""
-    # Memmap the data path as a flat uint16
-    data = np.memmap(shard_path, dtype=np.uint16, mode="r")
-
-    # Pick batch size
-    ix = torch.randint(len(data) - block_size, (batch_size,))
-
-    # build inputs and targets
-    x = torch.stack(
-        [torch.from_numpy(data[i : i + block_size].astype(np.int64)) for i in ix]
-    )
-    y = torch.stack(
-        [
-            torch.from_numpy(data[i + 1 : i + block_size + 1].astype(np.int64))
-            for i in ix
-        ]
-    )
-    # move to devide
-    x = x.to(device)
-    y = y.to(device)
-    return x, y
-
-
 def get_lr(step, warmup_steps, max_steps, learning_rate, min_lr):
     # linear warmup for the first warmup_steps
     if step < warmup_steps:
@@ -94,12 +66,27 @@ def get_lr(step, warmup_steps, max_steps, learning_rate, min_lr):
     return min_lr + coeff * (learning_rate - min_lr)
 
 
-def save_checkpoint(path, raw_model, optimizer, step, cfg):
+@torch.no_grad()
+def evaluate(model, loader, ctx, eval_iters, micro_batch_size, block_size, device):
+    """Mean loss over eval_iters random val batches (no grad, dropout off)."""
+    model.eval()
+    losses = torch.zeros(eval_iters)
+    for k in range(eval_iters):
+        x, y = loader.get_batch(micro_batch_size, block_size, device)
+        with ctx:
+            _, loss = model(x, y)
+        losses[k] = loss.item()
+    model.train()
+    return losses.mean().item()
+
+
+def save_checkpoint(path, raw_model, optimizer, step, best_val_loss, cfg):
     """Atomic checkpoint save"""
     payload = {
         "model": raw_model.state_dict(),
         "optimizer": optimizer.state_dict(),
         "step": step,
+        "best_val_loss": best_val_loss,
         "cfg": cfg,
     }
     tmp = str(path) + ".tmp"
@@ -110,14 +97,21 @@ def save_checkpoint(path, raw_model, optimizer, step, cfg):
 if __name__ == "__main__":
     out_dir = Path(scfg["out_dir"])
     out_dir.mkdir(parents=True, exist_ok=True)
-    ckpt_path = out_dir / "ckpt.pt"
+    ckpt_path = out_dir / "ckpt.pt"  # latest, for resume
+    best_path = out_dir / "ckpt_best.pt"  # lowest val loss
+
+    train_loader = Shard_Loader(scfg["data_dir"], "train")
+    val_loader = Shard_Loader(scfg["data_dir"], "val")
+
     start_step = 0
+    best_val_loss = float("inf")
     # If in loading state then resume from checkpoint
     if scfg["resume"] and ckpt_path.exists():
         ckpt = torch.load(ckpt_path, map_location=device)
         raw_model.load_state_dict(ckpt["model"])  # load into raw, not compiled
         optimizer.load_state_dict(ckpt["optimizer"])  # optimizer momentum matters!
         start_step = ckpt["step"] + 1
+        best_val_loss = ckpt["best_val_loss"]
         print(f"resumed from {ckpt_path} at step {start_step}")
 
     grad_accum = tcfg["total_batch_size"] // (
@@ -140,11 +134,32 @@ if __name__ == "__main__":
         for optim in optimizer.param_groups:
             optim["lr"] = lr
 
+        # periodic val eval + checkpoints
+        if step % tcfg["eval_interval"] == 0:
+            val_loss = evaluate(
+                model,
+                val_loader,
+                ctx,
+                tcfg["eval_iters"],
+                tcfg["micro_batch_size"],
+                tcfg["block_size"],
+                device,
+            )
+            tqdm.write(
+                f"step {step}: val_loss {val_loss:.4f} (best {best_val_loss:.4f})"
+            )
+            save_checkpoint(ckpt_path, raw_model, optimizer, step, best_val_loss, cfg)
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                save_checkpoint(
+                    best_path, raw_model, optimizer, step, best_val_loss, cfg
+                )
+
         optimizer.zero_grad()
         loss_accum = 0.0
         for micro in tqdm(range(grad_accum), desc=f"step {step}", leave=False):
-            x, y = get_batch(
-                train_shard, tcfg["micro_batch_size"], tcfg["block_size"], device
+            x, y = train_loader.get_batch(
+                tcfg["micro_batch_size"], tcfg["block_size"], device
             )
 
             with ctx:
@@ -159,8 +174,8 @@ if __name__ == "__main__":
         pbar.set_postfix(
             loss=f"{loss_accum:.3f}", lr=f"{lr:.1e}", norm=f"{float(norm):.2f}"
         )
-        if step > 0 and step % tcfg["eval_interval"] == 0:
-            save_checkpoint(ckpt_path, raw_model, optimizer, step, cfg)
 
     # final save — outside the loop
-    save_checkpoint(ckpt_path, raw_model, optimizer, tcfg["max_steps"] - 1, cfg)
+    save_checkpoint(
+        ckpt_path, raw_model, optimizer, tcfg["max_steps"] - 1, best_val_loss, cfg
+    )

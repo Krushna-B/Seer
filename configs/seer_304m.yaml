@@ -30,3 +30,4 @@ seer_304m:
     seed: 1337
     out_dir: "checkpoints"
     resume: false
+    data_dir: "/Volumes/Crucial X9/Seer/processed/fineweb-edu-10bt"

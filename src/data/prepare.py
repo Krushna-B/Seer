@@ -31,10 +31,10 @@ class Shard_Loader:
     def get_batch(self, batch_size, block_size, device):
         """pick a random shard, then random windows inside it"""
         path = self.shards[torch.randint(len(self.shards), (1,)).item()]
-        data = self._data[path]
+        data = self._data(path)
 
         # Pick batch size
-        ix = torch.randint(len(data) - block_size, (batch_size,))
+        ix = torch.randint(len(data) - block_size, (batch_size,)).tolist()
         # build inputs and targets
         x = torch.stack(
             [torch.from_numpy(data[i : i + block_size].astype(np.int64)) for i in ix]
