@@ -6,7 +6,7 @@ from contextlib import nullcontext
 from models.GPT_model import GPT_Config, GPT_Model
 from pathlib import Path
 from tqdm import tqdm
-
+import os
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 config_path = PROJECT_ROOT / "configs" / "seer_304m.yaml"
@@ -94,7 +94,32 @@ def get_lr(step, warmup_steps, max_steps, learning_rate, min_lr):
     return min_lr + coeff * (learning_rate - min_lr)
 
 
+def save_checkpoint(path, raw_model, optimizer, step, cfg):
+    """Atomic checkpoint save"""
+    payload = {
+        "model": raw_model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "step": step,
+        "cfg": cfg,
+    }
+    tmp = str(path) + ".tmp"
+    torch.save(payload, tmp)
+    os.replace(tmp, path)
+
+
 if __name__ == "__main__":
+    out_dir = Path(scfg["out_dir"])
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ckpt_path = out_dir / "ckpt.pt"
+    start_step = 0
+    # If in loading state then resume from checkpoint
+    if scfg["resume"] and ckpt_path.exists():
+        ckpt = torch.load(ckpt_path, map_location=device)
+        raw_model.load_state_dict(ckpt["model"])  # load into raw, not compiled
+        optimizer.load_state_dict(ckpt["optimizer"])  # optimizer momentum matters!
+        start_step = ckpt["step"] + 1
+        print(f"resumed from {ckpt_path} at step {start_step}")
+
     grad_accum = tcfg["total_batch_size"] // (
         tcfg["micro_batch_size"] * tcfg["block_size"]
     )
@@ -103,7 +128,7 @@ if __name__ == "__main__":
     )
 
     model.train()
-    pbar = tqdm(range(tcfg["max_steps"]), desc="training")
+    pbar = tqdm(range(start_step, tcfg["max_steps"]), desc="training")
     for step in pbar:
         lr = get_lr(
             step,
@@ -131,6 +156,11 @@ if __name__ == "__main__":
         norm = torch.nn.utils.clip_grad_norm_(model.parameters(), tcfg["grad_clip"])
         optimizer.step()
 
-    pbar.set_postfix(
-        loss=f"{loss_accum:.3f}", lr=f"{lr:.1e}", norm=f"{float(norm):.2f}"
-    )
+        pbar.set_postfix(
+            loss=f"{loss_accum:.3f}", lr=f"{lr:.1e}", norm=f"{float(norm):.2f}"
+        )
+        if step > 0 and step % tcfg["eval_interval"] == 0:
+            save_checkpoint(ckpt_path, raw_model, optimizer, step, cfg)
+
+    # final save — outside the loop
+    save_checkpoint(ckpt_path, raw_model, optimizer, tcfg["max_steps"] - 1, cfg)

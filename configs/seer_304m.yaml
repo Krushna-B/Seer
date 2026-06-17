@@ -28,3 +28,5 @@ seer_304m:
     dtype: bfloat16
     compile: false
     seed: 1337
+    out_dir: "checkpoints"
+    resume: false
