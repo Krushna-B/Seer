@@ -70,7 +70,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--ckpt", default="artifacts/ckpt_best.pt")
     p.add_argument("--cache_dir", default="data/eval")
-    p.add_argument("--limit", type=int, default=10, help="eval only N examples")
+    p.add_argument("--limit", type=int, default=None, help="eval only N examples")
     args = p.parse_args()
 
     device = pick_device()
