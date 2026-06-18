@@ -15,6 +15,8 @@ image = (
         "tqdm",
         "huggingface_hub",
         "pynvml",
+        "datasets",
+        "python-dotenv",
     )
     .env({"PYTHONPATH": "/root/src"})
     .add_local_dir("src", "/root/src")  #  package
