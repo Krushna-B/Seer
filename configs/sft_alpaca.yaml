@@ -1,0 +1,13 @@
+sft_alpaca:
+  data:
+    dataset: tatsu-lab/alpaca
+    max_len: 512
+  train:
+    epochs: 3
+    batch_size: 32
+    learning_rate: 2.0e-5
+    lr_scheduler: cosine
+    warmup_ratio: 0.03
+    weight_decay: 0.0
+    bf16: false
+    logging_steps: 20

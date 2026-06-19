@@ -16,6 +16,7 @@ dependencies = [
     "lm-eval>=0.4.12",
     "transformers>=5.12.1",
     "accelerate>=1.14.0",
+    "trl>=1.6.0",
 ]
 
 [build-system]
