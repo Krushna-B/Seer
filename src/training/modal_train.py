@@ -22,10 +22,31 @@ image = (
     .add_local_dir("src", "/root/src")  #  package
     .add_local_dir("configs", "/root/configs")
 )
+
+# SFT image: adds trl/transformers/wandb/muon; git needed for the git+ install
+sft_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .apt_install("git")
+    .pip_install(
+        "torch",
+        "numpy",
+        "pyyaml",
+        "datasets",
+        "huggingface_hub",
+        "transformers",
+        "trl",
+        "wandb",
+        "git+https://github.com/KellerJordan/Muon",
+    )
+    .env({"PYTHONPATH": "/root/src"})
+    .add_local_dir("src", "/root/src")
+    .add_local_dir("configs", "/root/configs")
+)
 # Persistent Storage
 data_vol = modal.Volume.from_name("seer-data", create_if_missing=True)
 ckpt_vol = modal.Volume.from_name("seer-ckpt", create_if_missing=True)
 hf_secret = modal.Secret.from_name("huggingface-secret")
+wandb_secret = modal.Secret.from_name("wandb")
 DATA_DIR, CKPT_DIR = "/data", "/ckpt"
 
 
@@ -67,6 +88,66 @@ def train(resume: bool = False):
     ckpt_vol.commit()  # persist checkpoints for next run
 
 
+# ckpt_best.pt -> HF format, both on the ckpt volume (CPU job, no GPU billed)
+@app.function(image=sft_image, volumes={CKPT_DIR: ckpt_vol}, timeout=30 * 60)
+def convert(ckpt: str = "ckpt_best.pt", out: str = "hf_seer_124m"):
+    subprocess.run(
+        [
+            "python",
+            "-m",
+            "eval.convert_to_hf",
+            "--ckpt",
+            f"{CKPT_DIR}/{ckpt}",
+            "--out",
+            f"{CKPT_DIR}/{out}",
+        ],
+        cwd="/root",
+        check=True,
+    )
+    ckpt_vol.commit()
+
+
+# SFT job (Muon + wandb). L4 is plenty for 124M; 3h timeout caps a hung run.
+@app.function(
+    image=sft_image,
+    gpu="L4",
+    volumes={CKPT_DIR: ckpt_vol},
+    secrets=[hf_secret, wandb_secret],
+    timeout=3 * 60 * 60,
+)
+def sft(
+    base: str = "hf_seer_124m",
+    out: str = "sft_out",
+    limit: int = 0,
+    resume: bool = False,
+):
+    cmd = [
+        "python",
+        "-m",
+        "post_training.sft",
+        "--model",
+        f"{CKPT_DIR}/{base}",
+        "--out",
+        f"{CKPT_DIR}/{out}",
+    ]
+    if limit:
+        cmd += ["--limit", str(limit)]
+    if resume:
+        cmd += ["--resume"]
+    subprocess.run(cmd, cwd="/root", env={**os.environ}, check=True)
+    ckpt_vol.commit()
+
+
 @app.local_entrypoint()
 def main(resume: bool = False):
     train.remote(resume=resume)
+
+
+@app.local_entrypoint()
+def run_sft(
+    base: str = "hf_seer_124m",
+    out: str = "sft_out",
+    limit: int = 0,
+    resume: bool = False,
+):
+    sft.remote(base=base, out=out, limit=limit, resume=resume)

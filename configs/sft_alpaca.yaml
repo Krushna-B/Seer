@@ -9,5 +9,21 @@ sft_alpaca:
     lr_scheduler: cosine
     warmup_ratio: 0.03
     weight_decay: 0.0
-    bf16: false
+    bf16: true
     logging_steps: 20
+    eval_ratio: 0.02
+    eval_steps: 100
+    save_steps: 100
+    save_total_limit: 3 # keep last 3 ckpts
+    seed: 1337
+    run_name: seer-124m-sft-alpaca
+    wandb_project: seer
+    optim:
+      type: muon
+      muon_lr: 1.0e-3
+      muon_momentum: 0.95
+      embed_lr: 2.0e-5
+      head_lr: 2.0e-5
+      scalar_lr: 2.0e-5
+      adam_betas: [0.9, 0.95]
+      adam_eps: 1.0e-10

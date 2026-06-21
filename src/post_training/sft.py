@@ -1,4 +1,5 @@
 import argparse
+import os
 import yaml
 
 from trl.trainer.sft_trainer import SFTTrainer
@@ -23,8 +24,8 @@ def to_pc(ex):
 
 def build_muon_optimizer(model, ocfg, weight_decay):
     seen, head, embed, scalar, hidden = set(), [], [], [], []
-    for name, p in model.parameters():
-        if not p.require_grad or id(p) in seen:
+    for name, p in model.named_parameters():
+        if not p.requires_grad or id(p) in seen:
             continue
         seen.add(id(p))
         if "lm_head" in name:
@@ -36,7 +37,7 @@ def build_muon_optimizer(model, ocfg, weight_decay):
         else:
             scalar.append(p)
     betas, eps = tuple(ocfg["adam_betas"]), float(ocfg["adam_eps"])
-    adam = [(embed, "embed"), (head, "head_lr"), (scalar, "scalar")]
+    adam = [(embed, "embed_lr"), (head, "head_lr"), (scalar, "scalar_lr")]
     groups = [
         dict(
             params=ps,
@@ -46,7 +47,8 @@ def build_muon_optimizer(model, ocfg, weight_decay):
             weight_decay=weight_decay,
             use_muon=False,
         )
-        for ps, p in adam
+        for ps, key in adam
+        if ps
     ]
     if hidden:
         groups.append(
@@ -69,6 +71,7 @@ def main():
     p.add_argument("--model", required=True, help="HF base model path (converted)")
     p.add_argument("--out", required=True, help="output dir for the SFT model")
     p.add_argument("--limit", type=int, default=None, help="use N examples")
+    p.add_argument("--resume", action="store_true", help="resume from last checkpoint")
     args = p.parse_args()
 
     with open(args.config) as f:
@@ -83,6 +86,9 @@ def main():
     ds = load_dataset(dcfg["dataset"], split=split).map(
         to_pc, remove_columns=["instruction", "input", "output"]
     )
+    ds = ds.train_test_split(test_size=tcfg["eval_ratio"], seed=tcfg["seed"])
+
+    os.environ["WANDB_PROJECT"] = tcfg["wandb_project"]
 
     sft_cfg = SFTConfig(
         output_dir=args.out,
@@ -95,15 +101,40 @@ def main():
         bf16=tcfg["bf16"],
         logging_steps=tcfg["logging_steps"],
         max_length=dcfg["max_len"],
+        # Loggigng Info
+        logging_first_step=True,
+        report_to="wandb",
+        run_name=tcfg["run_name"],
+        eval_strategy="steps",  # Evaluation config and ckpt
+        eval_steps=tcfg["eval_steps"],
+        save_strategy="steps",
+        save_steps=tcfg["save_steps"],
+        save_total_limit=tcfg["save_total_limit"],
+        load_best_model_at_end=True,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
+        seed=tcfg["seed"],
     )
 
     ocfg = tcfg.get("optim", {})
     if ocfg.get("type") == "muon":
         optimizer = build_muon_optimizer(model, ocfg, float(tcfg["weight_decay"]))
-    trainer = SFTTrainer(
-        model=model, args=sft_cfg, train_dataset=ds, optimizers=(optimizer, None)
-    )
-    trainer.train()
+        trainer = SFTTrainer(
+            model=model,
+            args=sft_cfg,
+            train_dataset=ds["train"],
+            eval_dataset=ds["test"],
+            optimizers=(optimizer, None),
+        )
+    else:
+        trainer = SFTTrainer(
+            model=model,
+            args=sft_cfg,
+            train_dataset=ds["train"],
+            eval_dataset=ds["test"],
+        )
+
+    trainer.train(resume_from_checkpoint=args.resume)
     trainer.save_model(args.out)
     tok.save_pretrained(args.out)
     print(f"saved SFT model -> {args.out}")
