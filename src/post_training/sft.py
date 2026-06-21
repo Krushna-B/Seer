@@ -5,6 +5,7 @@ from trl.trainer.sft_trainer import SFTTrainer
 from trl.trainer.sft_config import SFTConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
+from muon import MuonWithAuxAdam
 
 
 def to_pc(ex):
@@ -18,6 +19,46 @@ def to_pc(ex):
         "prompt": f"### Instruction:\n{instr}\n\n### Response:\n",
         "completion": ex["output"],
     }
+
+
+def build_muon_optimizer(model, ocfg, weight_decay):
+    seen, head, embed, scalar, hidden = set(), [], [], [], []
+    for name, p in model.parameters():
+        if not p.require_grad or id(p) in seen:
+            continue
+        seen.add(id(p))
+        if "lm_head" in name:
+            head.append(p)
+        elif "wte" in name or "wpe" in name:
+            embed.append(p)
+        elif p.ndim >= 2:
+            hidden.append(p)
+        else:
+            scalar.append(p)
+    betas, eps = tuple(ocfg["adam_betas"]), float(ocfg["adam_eps"])
+    adam = [(embed, "embed"), (head, "head_lr"), (scalar, "scalar")]
+    groups = [
+        dict(
+            params=ps,
+            lr=float(ocfg[key]),
+            betas=betas,
+            eps=eps,
+            weight_decay=weight_decay,
+            use_muon=False,
+        )
+        for ps, p in adam
+    ]
+    if hidden:
+        groups.append(
+            dict(
+                params=hidden,
+                lr=float(ocfg["muon_lr"]),
+                momentum=float(ocfg["muon_momentum"]),
+                weight_decay=weight_decay,
+                use_muon=True,
+            )
+        )
+    return MuonWithAuxAdam(groups)
 
 
 def main():
@@ -56,7 +97,12 @@ def main():
         max_length=dcfg["max_len"],
     )
 
-    trainer = SFTTrainer(model=model, args=sft_cfg, train_dataset=ds)
+    ocfg = tcfg.get("optim", {})
+    if ocfg.get("type") == "muon":
+        optimizer = build_muon_optimizer(model, ocfg, float(tcfg["weight_decay"]))
+    trainer = SFTTrainer(
+        model=model, args=sft_cfg, train_dataset=ds, optimizers=(optimizer, None)
+    )
     trainer.train()
     trainer.save_model(args.out)
     tok.save_pretrained(args.out)

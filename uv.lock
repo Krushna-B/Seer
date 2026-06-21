@@ -1380,6 +1380,11 @@ wheels = [
 ]
 
 [[package]]
+name = "muon-optimizer"
+version = "0.1.0"
+source = { git = "https://github.com/KellerJordan/Muon#f98f1cacc0263b04290753e32be8d498c1efc806" }
+
+[[package]]
 name = "narwhals"
 version = "2.22.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2367,6 +2372,7 @@ dependencies = [
     { name = "huggingface-hub" },
     { name = "lm-eval" },
     { name = "matplotlib" },
+    { name = "muon-optimizer" },
     { name = "pyyaml" },
     { name = "tiktoken" },
     { name = "torch" },
@@ -2388,6 +2394,7 @@ requires-dist = [
     { name = "huggingface-hub", specifier = ">=1.19.0" },
     { name = "lm-eval", specifier = ">=0.4.12" },
     { name = "matplotlib", specifier = ">=3.11.0" },
+    { name = "muon-optimizer", git = "https://github.com/KellerJordan/Muon" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "tiktoken", specifier = ">=0.13.0" },
     { name = "torch", specifier = ">=2.12.0" },
