@@ -10,8 +10,9 @@ from datasets import load_dataset
 
 def preprocess_function(example):
     """Map template from alpaca instruction to DPOtrainer example"""
+    instruction = example["chosen"][0]["content"]
     return {
-        "prompt": f"### Instruction:\n{example['prompt']}\n\n### Response:\n",
+        "prompt": f"### Instruction:\n{instruction}\n\n### Response:\n",
         "chosen": example["chosen"][-1]["content"],
         "rejected": example["rejected"][-1]["content"],
     }
