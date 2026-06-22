@@ -23,12 +23,11 @@ image = (
     .add_local_dir("configs", "/root/configs")
 )
 
-# SFT image: adds trl/transformers/wandb/muon; git needed for the git+ install
+# SFT image
 sft_image = (
     modal.Image.debian_slim(python_version="3.12")
-    .apt_install("git")
     .pip_install(
-        "torch",
+        "torch>=2.12",  # torch.optim.Muon is built in from 2.12
         "numpy",
         "pyyaml",
         "datasets",
@@ -36,7 +35,6 @@ sft_image = (
         "transformers",
         "trl",
         "wandb",
-        "git+https://github.com/KellerJordan/Muon",
     )
     .env({"PYTHONPATH": "/root/src"})
     .add_local_dir("src", "/root/src")
@@ -88,7 +86,7 @@ def train(resume: bool = False):
     ckpt_vol.commit()  # persist checkpoints for next run
 
 
-# ckpt_best.pt -> HF format, both on the ckpt volume (CPU job, no GPU billed)
+# ckpt_best.pt -> HF format
 @app.function(image=sft_image, volumes={CKPT_DIR: ckpt_vol}, timeout=30 * 60)
 def convert(ckpt: str = "ckpt_best.pt", out: str = "hf_seer_124m"):
     subprocess.run(
@@ -107,7 +105,7 @@ def convert(ckpt: str = "ckpt_best.pt", out: str = "hf_seer_124m"):
     ckpt_vol.commit()
 
 
-# SFT job (Muon + wandb). L4 is plenty for 124M; 3h timeout caps a hung run.
+# SFT job
 @app.function(
     image=sft_image,
     gpu="L4",

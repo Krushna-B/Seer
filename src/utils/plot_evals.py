@@ -18,7 +18,7 @@ FIG_DIR = ROOT / "results" / "figures"
 
 HERO_FILL = "#FAECE7"  # coral 50
 HERO_TEXT = "#4A1B0C"  # coral 900
-SHOW_RANDOM = True
+SHOW_RANDOM = False
 
 mpl.rcParams.update({"savefig.dpi": 300, "font.family": "DejaVu Sans"})
 

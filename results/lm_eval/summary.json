@@ -37,7 +37,7 @@
     }
   },
   "models": {
-    "Seer 124M (base)": {
+    "Seer 124M Base": {
       "hellaswag": 0.3243,
       "arc_easy": 0.5311,
       "arc_challenge": 0.2474,
@@ -45,6 +45,15 @@
       "winogrande": 0.517,
       "lambada_openai": 0.2437,
       "ifeval": 0.1183
+    },
+    "Seer 124M After SFT": {
+      "hellaswag": 0.3067,
+      "arc_easy": 0.4907,
+      "arc_challenge": 0.2381,
+      "piqa": 0.6246,
+      "winogrande": 0.4933,
+      "lambada_openai": null,
+      "ifeval": 0.1165
     }
   }
 }

@@ -2,11 +2,11 @@ import argparse
 import os
 import yaml
 
+import torch
 from trl.trainer.sft_trainer import SFTTrainer
 from trl.trainer.sft_config import SFTConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
-from muon import MuonWithAuxAdam
 
 
 def to_pc(ex):
@@ -22,45 +22,65 @@ def to_pc(ex):
     }
 
 
+class CombinedOptimizer(torch.optim.Optimizer):
+    """Present several optimizers as one, so TRL's optimizers=(opt, None) works.
+
+    param_groups are shared references, so HF's LR scheduler drives every group.
+    """
+
+    def __init__(self, optimizers):
+        self.optimizers = optimizers
+        self.param_groups = [g for o in optimizers for g in o.param_groups]
+        self.defaults = {}
+
+    @property
+    def state(self):
+        s = {}
+        for o in self.optimizers:
+            s.update(o.state)
+        return s
+
+    def zero_grad(self, set_to_none=True):
+        for o in self.optimizers:
+            o.zero_grad(set_to_none=set_to_none)
+
+    def step(self, closure=None):
+        for o in self.optimizers:
+            o.step()
+
+    def state_dict(self):
+        return {"opts": [o.state_dict() for o in self.optimizers]}
+
+    def load_state_dict(self, sd):
+        for o, s in zip(self.optimizers, sd["opts"]):
+            o.load_state_dict(s)
+
+
 def build_muon_optimizer(model, ocfg, weight_decay):
-    seen, head, embed, scalar, hidden = set(), [], [], [], []
+    """Muon on 2D hidden matrices; AdamW on embeddings/head/norms/biases."""
+    seen, hidden, adam = set(), [], []
     for name, p in model.named_parameters():
         if not p.requires_grad or id(p) in seen:
             continue
         seen.add(id(p))
-        if "lm_head" in name:
-            head.append(p)
-        elif "wte" in name or "wpe" in name:
-            embed.append(p)
-        elif p.ndim >= 2:
+        if p.ndim == 2 and not any(k in name for k in ("wte", "wpe", "lm_head")):
             hidden.append(p)
         else:
-            scalar.append(p)
-    betas, eps = tuple(ocfg["adam_betas"]), float(ocfg["adam_eps"])
-    adam = [(embed, "embed_lr"), (head, "head_lr"), (scalar, "scalar_lr")]
-    groups = [
-        dict(
-            params=ps,
-            lr=float(ocfg[key]),
-            betas=betas,
-            eps=eps,
-            weight_decay=weight_decay,
-            use_muon=False,
-        )
-        for ps, key in adam
-        if ps
-    ]
-    if hidden:
-        groups.append(
-            dict(
-                params=hidden,
-                lr=float(ocfg["muon_lr"]),
-                momentum=float(ocfg["muon_momentum"]),
-                weight_decay=weight_decay,
-                use_muon=True,
-            )
-        )
-    return MuonWithAuxAdam(groups)
+            adam.append(p)
+    muon = torch.optim.Muon(
+        hidden,
+        lr=float(ocfg["muon_lr"]),
+        momentum=float(ocfg["muon_momentum"]),
+        weight_decay=weight_decay,
+    )
+    adamw = torch.optim.AdamW(
+        adam,
+        lr=float(ocfg["embed_lr"]),
+        betas=tuple(ocfg["adam_betas"]),
+        eps=float(ocfg["adam_eps"]),
+        weight_decay=weight_decay,
+    )
+    return CombinedOptimizer([muon, adamw])
 
 
 def main():

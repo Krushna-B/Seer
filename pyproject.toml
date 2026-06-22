@@ -17,7 +17,6 @@ dependencies = [
     "transformers>=5.12.1",
     "accelerate>=1.14.0",
     "trl>=1.6.0",
-    "muon-optimizer",
     "wandb>=0.27.2",
 ]
 
@@ -27,9 +26,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/models", "src/training", "src/data", "src/metrics"]
-
-[tool.uv.sources]
-muon-optimizer = { git = "https://github.com/KellerJordan/Muon" }
 
 [dependency-groups]
 dev = [
