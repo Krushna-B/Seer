@@ -149,3 +149,58 @@ def run_sft(
     resume: bool = False,
 ):
     sft.remote(base=base, out=out, limit=limit, resume=resume)
+
+
+# DPO image
+dpo_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .pip_install(
+        "torch>=2.12",
+        "numpy",
+        "pyyaml",
+        "datasets",
+        "huggingface_hub",
+        "transformers",
+        "trl",
+        "wandb",
+    )
+    .env({"PYTHONPATH": "/root/src"})
+    .add_local_dir("src", "/root/src")
+    .add_local_dir("configs", "/root/configs")
+)
+
+
+# DPO Job
+@app.function(
+    image=dpo_image,
+    gpu="L4",
+    volumes={CKPT_DIR: ckpt_vol},
+    secrets=[hf_secret, wandb_secret],
+    timeout=2 * 60 * 60,
+)
+def dpo(sft_model="sft_out/checkpoint-1500", out="dpo_results", limit=0, resume=False):
+    cmd = [
+        "python",
+        "-m",
+        "post_training.dpo",
+        "--model",
+        f"{CKPT_DIR}/{sft_model}",
+        "--out",
+        f"{CKPT_DIR}/{out}",
+    ]
+    if limit:
+        cmd += ["--limit", str(limit)]
+    if resume:
+        cmd += ["--resume"]
+    subprocess.run(cmd, cwd="/root", env={**os.environ}, check=True)
+    ckpt_vol.commit()
+
+
+@app.local_entrypoint()
+def run_dpo(
+    base="sft_out/checkpoint-1500",
+    out: str = "dpo_results",
+    limit: int = 0,
+    resume: bool = False,
+):
+    dpo.remote(sft_model=base, out=out, limit=limit, resume=resume)
