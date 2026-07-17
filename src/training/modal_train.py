@@ -196,6 +196,157 @@ def dpo(sft_model="sft_out/checkpoint-1500", out="dpo_results", limit=0, resume=
     ckpt_vol.commit()
 
 
+# Eval image
+eval_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .pip_install(
+        "torch>=2.12",
+        "numpy",
+        "transformers",
+        "accelerate",
+        "datasets",
+        "huggingface_hub",
+        "lm-eval[ifeval]",
+    )
+    .env({"PYTHONPATH": "/root/src", "HF_ALLOW_CODE_EVAL": "0"})
+    .add_local_dir("src", "/root/src")
+)
+
+# checkpoint name -> path on the ckpt volume
+EVAL_MODELS = {
+    "base": "hf_seer_124m",
+    "sft": "sft_out/checkpoint-1500",
+    "dpo": "dpo_results",
+}
+CAP_TASKS = (
+    "hellaswag,arc_easy,arc_challenge,piqa,winogrande,lambada_openai,truthfulqa_mc2"
+)
+IF_TASKS = "ifeval"
+
+
+# Eval job: lm-eval sweep over base / sft / dpo with raw per-sample logging
+@app.function(
+    image=eval_image,
+    gpu="L4",
+    volumes={CKPT_DIR: ckpt_vol},
+    secrets=[hf_secret],
+    timeout=6 * 60 * 60,
+)
+def evals(models: str = "base,sft,dpo", out: str = "evals", limit: int = 1000):
+    for name in models.split(","):
+        path = f"{CKPT_DIR}/{EVAL_MODELS[name]}"
+        for group, tasks in (("capability", CAP_TASKS), ("ifeval", IF_TASKS)):
+            cmd = [
+                "lm_eval",
+                "--model",
+                "hf",
+                "--model_args",
+                f"pretrained={path},dtype=bfloat16",
+                "--tasks",
+                tasks,
+                "--batch_size",
+                "auto",
+                "--device",
+                "cuda:0",
+                "--output_path",
+                f"{CKPT_DIR}/{out}/{name}/{group}",
+                "--log_samples",
+            ]
+            if group == "ifeval":
+                # model ctx is 1024; ifeval defaults to 1280 gen tokens -> cap it.
+                # instruction-following is the headline delta -> run the full set.
+                cmd += ["--gen_kwargs", "max_gen_toks=512"]
+            elif limit:
+                # cap the big capability tasks (hellaswag/lambada); the rest are
+                # already < limit so they run complete.
+                cmd += ["--limit", str(limit)]
+            subprocess.run(cmd, cwd="/root", check=True)
+        ckpt_vol.commit()  # persist after each checkpoint finishes
+
+
+@app.local_entrypoint()
+def run_evals(models: str = "base,sft,dpo", out: str = "evals", limit: int = 1000):
+    evals.remote(models=models, out=out, limit=limit)
+
+
+# Jinja template reproducing the exact SFT/DPO training format:
+#   "### Instruction:\n{instr}\n\n### Response:\n"
+ALPACA_CHAT_TEMPLATE = (
+    "{% for message in messages %}"
+    "{% if message['role'] == 'user' %}"
+    "### Instruction:\n{{ message['content'] }}\n\n"
+    "{% elif message['role'] == 'assistant' %}"
+    "### Response:\n{{ message['content'] }}"
+    "{% endif %}"
+    "{% endfor %}"
+    "{% if add_generation_prompt %}### Response:\n{% endif %}"
+)
+
+
+# Flexible eval: arbitrary tasks/limit, optionally apply the Alpaca chat template
+# (attaches it to the tokenizer so the post-trained models are prompted in the
+# format they were trained on).
+@app.function(
+    image=eval_image,
+    gpu="L4",
+    volumes={CKPT_DIR: ckpt_vol},
+    secrets=[hf_secret],
+    timeout=4 * 60 * 60,
+)
+def evals2(
+    models: str,
+    tasks: str,
+    out: str,
+    limit: int = 0,
+    apply_template: bool = False,
+):
+    from transformers import AutoTokenizer
+
+    for name in models.split(","):
+        path = f"{CKPT_DIR}/{EVAL_MODELS[name]}"
+        if apply_template:
+            tok = AutoTokenizer.from_pretrained(path)
+            tok.chat_template = ALPACA_CHAT_TEMPLATE
+            tok.save_pretrained(path)
+        cmd = [
+            "lm_eval",
+            "--model",
+            "hf",
+            "--model_args",
+            f"pretrained={path},dtype=bfloat16",
+            "--tasks",
+            tasks,
+            "--batch_size",
+            "auto",
+            "--device",
+            "cuda:0",
+            "--output_path",
+            f"{CKPT_DIR}/{out}/{name}",
+            "--log_samples",
+        ]
+        if apply_template:
+            cmd += ["--apply_chat_template"]
+        if "ifeval" in tasks:
+            cmd += ["--gen_kwargs", "max_gen_toks=512"]
+        if limit:
+            cmd += ["--limit", str(limit)]
+        subprocess.run(cmd, cwd="/root", check=True)
+        ckpt_vol.commit()
+
+
+@app.local_entrypoint()
+def run_evals2(
+    models: str = "sft,dpo",
+    tasks: str = "ifeval",
+    out: str = "evals_chat",
+    limit: int = 0,
+    apply_template: bool = False,
+):
+    evals2.remote(
+        models=models, tasks=tasks, out=out, limit=limit, apply_template=apply_template
+    )
+
+
 @app.local_entrypoint()
 def run_dpo(
     base="sft_out/checkpoint-1500",
