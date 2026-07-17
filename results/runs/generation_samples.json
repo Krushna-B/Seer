@@ -1,0 +1,68 @@
+{
+  "base": [
+    {
+      "prompt": "Explain what a mitochondrion does in one sentence.",
+      "response": "Explain what a mitochondrion does in one sentence.\nExplain what a mitochondrion does in one sentence.\nExplain what a mitochondrion does in one sentence.\nExplain what a mitochondrion does in one sentence.\nExplain what a mitochondrion does in one sentence.\nExplain what a mitochondrion does in one sentence.\nExplain"
+    },
+    {
+      "prompt": "Write a haiku about the ocean.",
+      "response": "Write a haiku about the ocean.\n### Response:\nWrite a haiku about the ocean.\n### Response:\nWrite a haiku about the ocean.\n### Response:\nWrite a haiku about the ocean.\n### Response:\nWrite a haiku about the ocean.\n### Response:\nWrite a haiku about the ocean.\n### Response:\nWrite a"
+    },
+    {
+      "prompt": "List three tips for saving money.",
+      "response": "1. Use a credit card or debit card to pay for a service.\n2. Use a credit card or debit card to pay for a service.\n3. Use a credit card or debit card to pay for a service.\n4. Use a credit card or debit card to pay for a service.\n5. Use a credit card or debit card to pay for a service."
+    },
+    {
+      "prompt": "What is the capital of France?",
+      "response": "What is the capital of France?\nWhat is the capital of France?\nWhat is the capital of France?\nWhat is the capital of France?\nWhat is the capital of France?\nWhat is the capital of France?\nWhat is the capital of France?\nWhat is the capital of France?\nWhat is the capital of France?\nWhat is the capital of France?"
+    },
+    {
+      "prompt": "Give one reason the sky appears blue.",
+      "response": "Give one reason the sky appears blue.\n### Response:\nGive one reason the sky appears blue.\n### Response:\nGive one reason the sky appears blue.\n### Response:\nGive one reason the sky appears blue.\n### Response:\nGive one reason the sky appears blue.\n### Response:\nGive one reason the sky appears blue.\n### Response:\nGive one"
+    }
+  ],
+  "sft": [
+    {
+      "prompt": "Explain what a mitochondrion does in one sentence.",
+      "response": "A mitochondrion is a type of organelle that produces energy in the form of ATP. It is a type of energy storage molecule that is used to power the body's metabolism. It is made up of two main components, the mitochondria, which are the energy source for the mitochondria. The mitochondria are the source of energy for the mitochondria, and it is the source of energy"
+    },
+    {
+      "prompt": "Write a haiku about the ocean.",
+      "response": "The ocean is alive and\nThe waves of the sea\nThe waves of the sea\nThe waves of the sea\nThe waves of the sea\n\nThe waves of the sea\nThe waves of the sea\n\nThe waves of the sea\n\nThe waves of the sea\n\nThe waves of the sea\n\nThe waves of the sea\n\nThe waves of the sea\n\nThe"
+    },
+    {
+      "prompt": "List three tips for saving money.",
+      "response": "1. Make a budget and stick to it.\n2. Make a plan to buy items.\n3. Make a budget and stick to it.\n4. Make a plan to buy items.\n5. Make a budget and stick to it.\n6. Make a budget and stick to it.\n7. Make a plan to buy items.\n8. Make a budget and"
+    },
+    {
+      "prompt": "What is the capital of France?",
+      "response": "The capital of France is Paris. It is the largest country in the European Union, with a population of over 1.8 million people. It is the largest country in the European Union, with a population of over 1.8 million people. It is the largest country in the European Union, with a population of over 1.8 million people. It is the largest country in the European Union,"
+    },
+    {
+      "prompt": "Give one reason the sky appears blue.",
+      "response": "The sky appears blue because of the way the atmosphere absorbs blue light from the sun. This is because the atmosphere absorbs the blue light from the sun, which is absorbed by the atmosphere. This is why the sky appears blue because of the way the atmosphere absorbs the blue light. This is why the sky appears blue because of the way the atmosphere absorbs the blue light. This is why the sky appears blue"
+    }
+  ],
+  "dpo": [
+    {
+      "prompt": "Explain what a mitochondrion does in one sentence.",
+      "response": "A mitochondrion is a type of organelle that produces energy in the form of ATP. It is a type of energy storage organelle that is used to power the body's metabolism. It is made up of a single-celled, single-celled cell, and is made up of a single-celled, double-celled cell. It is made up of a single-"
+    },
+    {
+      "prompt": "Write a haiku about the ocean.",
+      "response": "The ocean is alive\nThe waves of the sea\nThe waves of the sea\nThe waves of the sea\nThe waves of the sea\n\nThe waves of the ocean\n\nThe waves of the sea\n\nThe waves of the sea\n\nThe waves of the sea\n\nThe waves of the sea\n\nThe waves of the sea\n\nThe waves of the sea\n\nThe"
+    },
+    {
+      "prompt": "List three tips for saving money.",
+      "response": "1. Make a budget and stick to it.\n2. Make a plan to save money.\n3. Make a plan to buy items.\n4. Make a budget and stick to it.\n5. Make a plan to buy items.\n6. Make a budget and stick to it.\n7. Make a plan to buy items.\n8. Make a budget and stick"
+    },
+    {
+      "prompt": "What is the capital of France?",
+      "response": "The capital of France is Paris. It is the largest country in the European Union, with a population of over 1.8 million people. It is the largest country in the European Union, with a population of over 1.8 million people. It is the largest producer of wine, wine-making, and wine-making. It is the largest producer of cheese, cheese-making, and cheese"
+    },
+    {
+      "prompt": "Give one reason the sky appears blue.",
+      "response": "The sky appears blue because of the way the atmosphere absorbs blue light from the sun. This is due to the way the atmosphere absorbs the blue light, which is absorbed by the atmosphere. This is why the sky appears blue because of the way the atmosphere absorbs the blue light. This is why the sky appears blue because of the way the atmosphere absorbs the blue light. This is why the sky appears blue"
+    }
+  ]
+}

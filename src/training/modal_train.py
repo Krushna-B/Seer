@@ -334,6 +334,54 @@ def evals2(
         ckpt_vol.commit()
 
 
+SAMPLE_PROMPTS = [
+    "Explain what a mitochondrion does in one sentence.",
+    "Write a haiku about the ocean.",
+    "List three tips for saving money.",
+    "What is the capital of France?",
+    "Give one reason the sky appears blue.",
+]
+
+
+# Generate the same prompts through base / SFT / DPO for a qualitative table.
+@app.function(
+    image=eval_image, gpu="L4", volumes={CKPT_DIR: ckpt_vol}, timeout=30 * 60
+)
+def samples(models: str = "base,sft,dpo", tokens: int = 80):
+    import json as _json
+
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    out = {}
+    for name in models.split(","):
+        path = f"{CKPT_DIR}/{EVAL_MODELS[name]}"
+        tok = AutoTokenizer.from_pretrained(path)
+        model = AutoModelForCausalLM.from_pretrained(path).to("cuda").eval()
+        out[name] = []
+        for prompt in SAMPLE_PROMPTS:
+            text = f"### Instruction:\n{prompt}\n\n### Response:\n"
+            ids = tok(text, return_tensors="pt").input_ids.to("cuda")
+            with torch.no_grad():
+                gen = model.generate(
+                    ids,
+                    max_new_tokens=tokens,
+                    do_sample=False,  # greedy -> reproducible
+                    eos_token_id=tok.eos_token_id,
+                    pad_token_id=tok.eos_token_id,
+                )
+            resp = tok.decode(gen[0, ids.shape[1]:], skip_special_tokens=True)
+            out[name].append({"prompt": prompt, "response": resp.strip()})
+    print("SAMPLES_JSON_START")
+    print(_json.dumps(out, indent=2))
+    print("SAMPLES_JSON_END")
+
+
+@app.local_entrypoint()
+def run_samples(models: str = "base,sft,dpo", tokens: int = 80):
+    samples.remote(models=models, tokens=tokens)
+
+
 @app.local_entrypoint()
 def run_evals2(
     models: str = "sft,dpo",

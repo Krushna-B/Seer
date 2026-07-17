@@ -58,7 +58,7 @@
   "failure_reason": null,
   "end_time": "2026-06-17T20:16:27",
   "duration_hr": 15.371515365905232,
-  "total_tokens": 996147200,
+  "total_tokens": 9961472000,
   "best_val_loss": 3.040684223175049,
   "cost_usd": 32.280182271321614,
   "ckpt_best": "/ckpt/ckpt_best.pt",
